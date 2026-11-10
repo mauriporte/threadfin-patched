@@ -89,11 +89,16 @@ Verified this way on 08/11: Pluto TV John Wayne played (first byte 13 s, video+a
 sh build.sh                     # on the Docker host: builds /DATA/AppData/threadfin-build/threadfin + the image
 ```
 
-Then the CasaOS compose `/var/lib/casaos/apps/threadfin/docker-compose.yml` uses
-`image: threadfin-patched:1.2.37-osfs` (the original is kept as `docker-compose.yml.bak-20261108-unpatched`),
-and `DOCKER_CONFIG=/DATA/AppData/threadfin-build/.docker docker compose up -d` in that folder.
+Then push the image to a registry the host can pull from, and change the app's image through the ZimaOS/CasaOS
+app API or UI (not a bare `docker compose up`). ZimaOS always pulls on an image change, so a local-only tag fails
+and the app rolls back:
 
-**Roll back:** restore `docker-compose.yml.bak-20261108-unpatched` and run `docker compose up -d`.
+```sh
+docker tag threadfin-patched:1.2.37-fix5 <registry>/threadfin-patched:1.2.37-fix5
+docker push <registry>/threadfin-patched:1.2.37-fix5   # then image: <registry>/threadfin-patched:1.2.37-fix5
+```
+
+**Roll back:** set the image back to the previous tag, which must be in the registry too.
 
 **After a Threadfin restart:** fetch `http://<threadfin-host>:34400/m3u/threadfin.m3u` once. Until a
 client fetches the playlist, Threadfin answers every stream with
