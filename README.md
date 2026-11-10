@@ -1,7 +1,7 @@
 # threadfin-patched
 
 Threadfin 1.2.37 with the stream buffer written to disk instead of RAM.
-Runs as the CasaOS/ZimaOS app `threadfin`, image `threadfin-patched:1.2.37-fix3`.
+Runs as the CasaOS/ZimaOS app `threadfin`, image `threadfin-patched:1.2.37-fix5` (build with `TAG=1.2.37-fix5 sh build.sh <outdir>`).
 
 ## Why
 
@@ -42,6 +42,17 @@ Two different bugs, both in `src/buffer.go`, both seen in Threadfin's own crash 
   forever, so ffmpeg kept running with nobody watching (and its 20 s start timeout never fired); every retry
   added another copy. A watchdog now kills the process within about 1 s once the stream has no clients.
 
+- `src/buffer.go` (fix4, `fix4.py`): `getActiveClientCount()` and `cleanUpStaleClients()` read and wrote
+  `playlist.Clients` without `Lock` on every dashboard poll (found by bandit8623 on PR #669); the count now holds
+  `Lock`. The leftover watchdog waits for 3 checks in a row (~3 s) without clients before it kills, so a quick
+  reconnect keeps its process.
+
+- `src/webserver.go` (fix5, `fix5.py`): the web UI's reply carried `Data.XEPG.Channels` / `Data.XMLTV.Mapping`
+  while `buildXEPG`'s background goroutine wrote them (startup, scheduled updates, settings saves):
+  `concurrent map iteration and map write` at webserver.go:648 vs xepg.go:478. While a build runs
+  (`System.ScanInProgress == 1`, when the UI already shows maintenance.html) the reply sends empty maps.
+  A build that starts between that check and `WriteJSON` can still race; closing that needs a lock in the build.
+
 Also learned from the code: Threadfin gives up on a channel after `timeOut > 200` x 100 ms = **20 s**
 (buffer.go, "Loop 1"), plus the `buffer.timeout` sleep before it starts.
 
@@ -64,6 +75,13 @@ watched 90 s without being cut off.
 
 Verified this way on 08/11: Pluto TV John Wayne played (first byte 13 s, video+audio), 6 quick disconnects, 0 panics.
 `stress.sh` (race fix): 6 pairs of channels started at the same instant plus quick disconnects: 0 crashes, every pair delivered video except cold-start Pluto, which is slow on its own.
+
+10/11/2026, on test copies:
+- `startup_race.sh <image> <threadfin_setup.py>` (web UI polled from container start): fix3 crashed in 2 of 3
+  runs (`concurrent map iteration and map write`), fix5 survived 3 of 3 (~725 polls each).
+- `test_fix4.sh` (UI polled during `stress.sh`, then a 1 s reconnect): fix3, fix4 and fix5 all 0 crashes
+  (~2,600 polls). The `playlist.Clients` race was not triggered on demand; fix4's lock is from code review.
+  On a normal disconnect the read loop ends ffmpeg itself, so the watchdog's grace only matters for stalled sources.
 
 ## Build and install
 
@@ -93,5 +111,6 @@ client fetches the playlist, Threadfin answers every stream with
 - Open PR #669 (31/10/2026, not merged) wraps the memfs panic in a `recover`, so it kills one stream instead
   of the whole app. It doesn't remove the cause and doesn't touch the `createStreamID` race.
 - Upstream PR #669's `recover` can't catch the map race (Go's fatal error isn't recoverable).
-- `upstream-suggestion.md`: posted 09/11/2026 as a comment on PR #669.
+- `upstream-suggestion.md`: posted 09/11/2026 as a comment on PR #669. bandit8623 replied 10/11 (taking the
+  lock fix into #669; osfs only as an opt-in via `storeBufferInRAM`; leftovers belong with #667/#668).
 - When upstream fixes both bugs, go back to the official image.

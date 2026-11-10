@@ -1,5 +1,5 @@
 diff --git a/src/buffer.go b/src/buffer.go
-index afebe0b..5637f37 100644
+index afebe0b..852dbf5 100644
 --- a/src/buffer.go
 +++ b/src/buffer.go
 @@ -19,10 +19,11 @@ import (
@@ -15,7 +15,17 @@ index afebe0b..5637f37 100644
  )
  
  type BackupStream struct {
-@@ -154,9 +155,12 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -31,6 +32,9 @@ type BackupStream struct {
+ }
+ 
+ func getActiveClientCount() (count int) {
++	// patched (fix4): playlist.Clients is written under Lock elsewhere; cleanUpStaleClients runs inside this lock
++	Lock.Lock()
++	defer Lock.Unlock()
+ 	count = 0
+ 	cleanUpStaleClients() // Ensure stale clients are removed first
+ 
+@@ -154,9 +158,12 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  	w.Header().Set("Access-Control-Allow-Origin", "*")
  
  	// Check whether the playlist is already in use
@@ -29,7 +39,7 @@ index afebe0b..5637f37 100644
  		var playlistType string
  
  		// Playlist is not yet in use, create default values for the playlist
-@@ -224,13 +228,10 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -224,13 +231,10 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  		playlist.Streams[streamID] = stream
  		playlist.Clients[streamID] = client
  
@@ -43,7 +53,7 @@ index afebe0b..5637f37 100644
  
  		// Playlist is already used for streaming
  		// Check if the URL is already streaming from another client.
-@@ -253,9 +254,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -253,9 +257,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  				playlist.Clients[streamID] = client
  
@@ -53,7 +63,7 @@ index afebe0b..5637f37 100644
  
  				debug = fmt.Sprintf("Restream Status:Playlist: %s - Channel: %s - Connections: %d", playlist.PlaylistName, stream.ChannelName, client.Connection)
  
-@@ -282,6 +281,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -282,6 +284,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  			// Check if the playlist allows another stream (Tuner)
  			if len(playlist.Streams) >= playlist.Tuner {
@@ -61,7 +71,7 @@ index afebe0b..5637f37 100644
  				// If there are backup URLs, use them
  				if backupStream1 != nil {
  					bufferingStream(backupStream1.PlaylistID, backupStream1.URL, nil, backupStream2, backupStream3, channelName, w, r)
-@@ -331,9 +331,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -331,9 +334,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  			playlist.Streams[streamID] = stream
  			playlist.Clients[streamID] = client
  
@@ -71,7 +81,7 @@ index afebe0b..5637f37 100644
  
  		}
  
-@@ -354,9 +352,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -354,9 +355,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  		playlist.Streams[streamID] = stream
  
@@ -81,7 +91,7 @@ index afebe0b..5637f37 100644
  
  		switch playlist.Buffer {
  
-@@ -376,6 +372,8 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -376,6 +375,8 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  	}
  
@@ -90,7 +100,7 @@ index afebe0b..5637f37 100644
  	w.WriteHeader(200)
  
  	for { //Loop 1: Wait until the first segment has been downloaded through the buffer
-@@ -384,7 +382,10 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -384,7 +385,10 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  			var playlist = p.(Playlist)
  
@@ -102,7 +112,7 @@ index afebe0b..5637f37 100644
  
  				if !stream.Status {
  
-@@ -396,7 +397,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
+@@ -396,7 +400,7 @@ func bufferingStream(playlistID string, streamingURL string, backupStream1 *Back
  
  						var clients = c.(ClientConnection)
  
@@ -111,7 +121,7 @@ index afebe0b..5637f37 100644
  							killClientConnection(streamID, stream.PlaylistID, false)
  							return
  						}
-@@ -1027,13 +1028,15 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
+@@ -1027,13 +1031,15 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
  		var debug, path, options, bufferType string
  		var tmpSegment = 1
  		var bufferSize = Settings.BufferSize * 1024
@@ -129,7 +139,7 @@ index afebe0b..5637f37 100644
  		if useBackup {
  			if backupNumber >= 1 && backupNumber <= 3 {
  				switch backupNumber {
-@@ -1092,7 +1095,9 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
+@@ -1092,7 +1098,9 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
  				return
  			}
  
@@ -139,7 +149,7 @@ index afebe0b..5637f37 100644
  
  			if c, ok := BufferClients.Load(playlistID + stream.MD5); ok {
  
-@@ -1228,6 +1233,25 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
+@@ -1228,6 +1236,32 @@ func thirdPartyBuffer(streamID int, playlistID string, useBackup bool, backupNum
  		cmd.Start()
  		defer cmd.Wait()
  
@@ -147,25 +157,32 @@ index afebe0b..5637f37 100644
 +		watchdogDone := make(chan struct{})
 +		defer close(watchdogDone)
 +		go func(key string) {
++			missing := 0
 +			for {
 +				select {
 +				case <-watchdogDone:
 +					return
 +				case <-time.After(time.Second):
 +				}
-+				if _, ok := BufferClients.Load(key); !ok {
-+					if cmd.Process != nil {
-+						cmd.Process.Kill()
-+					}
-+					return
++				if _, ok := BufferClients.Load(key); ok {
++					missing = 0
++					continue
 +				}
++				// patched (fix4): grace period, a client reconnecting within ~3 s keeps its process
++				if missing++; missing < 3 {
++					continue
++				}
++				if cmd.Process != nil {
++					cmd.Process.Kill()
++				}
++				return
 +			}
 +		}(stream.PlaylistID + stream.MD5)
 +
  		go func() {
  
  			// Display log data from the process in debug mode 1.
-@@ -1424,7 +1448,7 @@ func getTuner(id, playlistType string) (tuner int) {
+@@ -1424,7 +1458,7 @@ func getTuner(id, playlistType string) (tuner int) {
  }
  
  func initBufferVFS() {
@@ -189,3 +206,22 @@ index 917ab98..901a122 100644
  			vm.VolumeAdd(path)
  		}
  
+diff --git a/src/webserver.go b/src/webserver.go
+index c0de9d0..8842906 100644
+--- a/src/webserver.go
++++ b/src/webserver.go
+@@ -1133,7 +1133,13 @@ func setDefaultResponseData(response ResponseStruct, data bool) (defaults Respon
+ 
+ 			var XEPG = make(map[string]interface{})
+ 
+-			if len(Data.Streams.Active) > 0 {
++			// patched (fix5): no live XEPG maps while a build writes them
++			// shortcut: a build that starts between this check and WriteJSON can still race; a full fix needs a lock in the build
++			systemMutex.Lock()
++			building := System.ScanInProgress == 1
++			systemMutex.Unlock()
++
++			if len(Data.Streams.Active) > 0 && !building {
+ 
+ 				XEPG["epgMapping"] = Data.XEPG.Channels
+ 				XEPG["xmltvMap"] = Data.XMLTV.Mapping
